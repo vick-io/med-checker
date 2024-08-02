@@ -54,12 +54,13 @@ export default function Home() {
   };
 
   const handleSelectMedication = async (medication: string) => {
-    if (!selectedMedications.includes(medication)) {
+    const medName = medication.split(" (")[0]; // Extract medication name
+    if (!selectedMedications.includes(medName)) {
       const interactions = await fetchInteractions(
-        medication,
+        medName,
         selectedMedications
       );
-      setSelectedMedications([...selectedMedications, medication]);
+      setSelectedMedications([...selectedMedications, medName]);
       setInteractionResults(interactions);
     }
     setInputValue("");

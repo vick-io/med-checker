@@ -8,7 +8,6 @@ from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func
 import os
 import httpx
-import xml.etree.ElementTree as ET
 
 app = FastAPI()
 
@@ -24,19 +23,33 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Create an absolute path for the SQLite database
-db_path = os.path.join(os.path.dirname(__file__), '../medications.db')
-print(f"Database path: {os.path.abspath(db_path)}")
+# Database connection parameters
+DATABASE_URL = "mysql+mysqlconnector://root:44551237895@localhost/rxnorm_db"
 
-engine = create_engine(f'sqlite:///{db_path}')
+engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-class Medication(Base):
-    __tablename__ = "medications"
-    id = Column(Integer, primary_key=True, index=True)
-    proprietary_name = Column(String, index=True)
-    nonproprietary_name = Column(String, index=True)
+class RXNCONSO(Base):
+    __tablename__ = "RXNCONSO"
+    RXCUI = Column(String, primary_key=True, index=True)
+    LAT = Column(String)
+    TS = Column(String)
+    LUI = Column(String)
+    STT = Column(String)
+    SUI = Column(String)
+    ISPREF = Column(String)
+    RXAUI = Column(String)
+    SAUI = Column(String)
+    SCUI = Column(String)
+    SDUI = Column(String)
+    SAB = Column(String)
+    TTY = Column(String)
+    CODE = Column(String)
+    STR = Column(String)
+    SRL = Column(Integer)
+    SUPPRESS = Column(String)
+    CVF = Column(String)
 
 Base.metadata.create_all(bind=engine)
 
@@ -47,47 +60,39 @@ class Medications(BaseModel):
 @app.post("/check-interactions")
 async def check_interactions(request: Medications):
     try:
-        medication_rxcui = await get_rxcui(request.medication)
-        current_medications_rxcui = [
-            await get_rxcui(med) for med in request.current_medications
-        ]
-        interactions = await get_interactions(
-            [medication_rxcui] + current_medications_rxcui
-        )
+        session = SessionLocal()
+        medication_rxcui = get_rxcui_from_db(session, request.medication)
+        current_medications_rxcui = [get_rxcui_from_db(session, med) for med in request.current_medications]
+        session.close()
+        
+        if not medication_rxcui:
+            raise HTTPException(status_code=400, detail=f"RxCUI not found for medication: {request.medication}")
+        
+        missing_rxcuis = [med for med, rxcui in zip(request.current_medications, current_medications_rxcui) if not rxcui]
+        if missing_rxcuis:
+            raise HTTPException(status_code=400, detail=f"RxCUI not found for medications: {missing_rxcuis}")
+        
+        interactions = await get_interactions([medication_rxcui] + current_medications_rxcui)
         return {"interactions": interactions}
     except Exception as e:
         print(f"Unexpected error during interaction check: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-async def get_rxcui(medication_name: str) -> str:
+def get_rxcui_from_db(session, medication_name: str):
     try:
-        # Extract proprietary name only
-        proprietary_name = medication_name.split(" (")[0]
-        async with httpx.AsyncClient() as client:
-            response = await client.get(
-                f"https://rxnav.nlm.nih.gov/REST/rxcui?name={proprietary_name}"
-            )
-            response.raise_for_status()
-            if "application/json" in response.headers.get("Content-Type", ""):
-                data = response.json()
-                if 'idGroup' in data and 'rxnormId' in data['idGroup']:
-                    return data['idGroup']['rxnormId'][0]
-                else:
-                    raise ValueError(f"No RxNorm ID found for {medication_name}")
-            elif "application/xml" in response.headers.get("Content-Type", ""):
-                root = ET.fromstring(response.text)
-                rxcui = root.find(".//rxnormId")
-                if rxcui is not None:
-                    return rxcui.text
-                else:
-                    raise ValueError(f"No RxNorm ID found for {medication_name}")
-            else:
-                print(f"Unexpected response content type: {response.headers.get('Content-Type')}")
-                print(f"Response content: {response.text}")
-                raise ValueError(f"Unexpected response format for {medication_name}")
+        medication = session.query(RXNCONSO).filter(
+            func.lower(RXNCONSO.STR) == func.lower(medication_name)
+        ).first()
+        
+        if medication:
+            print(f"RxCUI found for {medication_name}: {medication.RXCUI}")
+            return medication.RXCUI
+        else:
+            print(f"No RxCUI found for {medication_name}")
+            return None
     except Exception as e:
-        print(f"Error fetching RxCUI for {medication_name}: {e}")
-        raise
+        print(f"Error fetching RxCUI from DB for {medication_name}: {e}")
+        return None
 
 async def get_interactions(rxcuis: list[str]) -> list[dict]:
     try:
@@ -125,10 +130,9 @@ def search_medications(query: str = Query(..., min_length=1)):
         session = SessionLocal()
 
         # Perform the search query
-        medications = session.query(Medication).filter(
-            (func.lower(Medication.proprietary_name).like(func.lower(f"{query}%"))) |
-            (func.lower(Medication.nonproprietary_name).like(func.lower(f"{query}%")))
-        ).order_by(Medication.proprietary_name.asc(), Medication.nonproprietary_name.asc()).limit(10).all()
+        medications = session.query(RXNCONSO).filter(
+            func.lower(RXNCONSO.STR).like(func.lower(f"{query}%"))
+        ).order_by(RXNCONSO.STR.asc()).limit(10).all()
         session.close()
 
         if not medications:
@@ -136,7 +140,7 @@ def search_medications(query: str = Query(..., min_length=1)):
             raise HTTPException(status_code=404, detail="No medications found")
 
         suggestions = [
-            f"{med.proprietary_name} ({med.nonproprietary_name})" for med in medications
+            f"{med.STR} ({med.RXCUI})" for med in medications
         ]
         print(f"Suggestions: {suggestions}")
         return {"suggestions": suggestions}
