@@ -103,14 +103,14 @@ export default function Home() {
   };
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-start p-6 bg-gray-50">
+    <main className="flex min-h-screen flex-col items-center justify-start p-6 bg-gray-100">
       <header className="text-center my-8">
-        <h1 className="text-6xl font-bold text-purple-700">Mediract</h1>
-        <p className="text-xl text-gray-600 mt-4">
+        <h1 className="text-6xl font-bold text-indigo-600">Mediract</h1>
+        <p className="text-xl text-gray-700 mt-4">
           Search for medications and check for interactions
         </p>
       </header>
-      <div className="bg-purple-100 p-8 rounded-lg shadow-lg w-full max-w-2xl">
+      <div className="bg-white p-8 rounded-lg shadow-lg w-full max-w-2xl">
         <form className="space-y-4 relative">
           <div className="flex flex-col">
             <label
@@ -124,11 +124,11 @@ export default function Home() {
               value={inputValue}
               onChange={handleInputChange}
               placeholder="Enter medication"
-              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-400 text-black"
+              className="px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 text-gray-900"
             />
             {suggestions.length > 0 && (
               <ul
-                className="absolute z-10 bg-white border border-gray-300 rounded-lg mt-2 w-full text-black"
+                className="absolute z-10 bg-white border border-gray-300 rounded-lg mt-2 w-full text-gray-900 shadow-lg"
                 style={{ top: "100%" }}
               >
                 {suggestions.map((suggestion) => (
@@ -152,7 +152,7 @@ export default function Home() {
             {selectedMedications.map((medication) => (
               <li
                 key={medication.medscape_id}
-                className="flex justify-between items-center bg-white p-4 rounded-lg shadow-md text-black"
+                className="flex justify-between items-center bg-gray-50 p-4 rounded-lg shadow-md text-gray-900"
               >
                 {medication.name}
                 <button
@@ -167,13 +167,13 @@ export default function Home() {
           {selectedMedications.length > 0 && (
             <button
               onClick={handleClearMedications}
-              className="mt-4 px-4 py-2 bg-red-500 text-white rounded-lg"
+              className="mt-4 px-4 py-2 bg-red-500 text-white rounded-lg shadow-lg"
             >
               Clear All Medications
             </button>
           )}
           {interactionResults && interactionResults.interactions && (
-            <div className="mt-8 bg-white p-4 rounded-lg shadow-inner text-black">
+            <div className="mt-8 bg-gray-50 p-6 rounded-lg shadow-inner text-gray-900">
               <h2 className="text-2xl font-semibold text-gray-900 mb-4">
                 Interaction Results
               </h2>
@@ -187,13 +187,23 @@ export default function Home() {
                   },
                   index: Key | null | undefined
                 ) => (
-                  <div key={index} className="mb-2">
-                    <p>
-                      <strong>{interaction.medication1}</strong> interacts with{" "}
-                      <strong>{interaction.medication2}</strong>
+                  <div
+                    key={index}
+                    className="mb-4 p-4 bg-white rounded-lg shadow-sm"
+                  >
+                    <p className="text-lg font-bold">
+                      <strong className="text-indigo-600">
+                        {interaction.medication1}
+                      </strong>{" "}
+                      interacts with{" "}
+                      <strong className="text-indigo-600">
+                        {interaction.medication2}
+                      </strong>
                     </p>
-                    <p>{interaction.interaction}</p>
-                    <p>
+                    <p className="mt-2 text-gray-700">
+                      {interaction.interaction}
+                    </p>
+                    <p className="mt-1 text-gray-700">
                       <strong>Severity:</strong> {interaction.severity}
                     </p>
                   </div>
@@ -203,6 +213,14 @@ export default function Home() {
           )}
         </div>
       </div>
+      <footer className="mt-4 p-6 w-full max-w-2xl text-center">
+        <p className="text-gray-600">
+          Not all drugs interact, and not every interaction means you must stop
+          taking one of your medications. Always consult your healthcare
+          provider about how drug interactions should be managed before making
+          any changes to your current prescription.
+        </p>
+      </footer>
     </main>
   );
 }
