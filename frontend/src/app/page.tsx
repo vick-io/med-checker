@@ -7,10 +7,16 @@ interface InteractionResponse {
     medication1: string;
     medication2: string;
     interaction: string;
+    severity: string;
   }>;
 }
 
-const fetchSuggestions = async (query: string): Promise<string[]> => {
+interface Suggestion {
+  name: string;
+  medscape_id: string;
+}
+
+const fetchSuggestions = async (query: string): Promise<Suggestion[]> => {
   const response = await fetch(
     `http://localhost:8000/search-medications?query=${query}`
   );
@@ -19,23 +25,28 @@ const fetchSuggestions = async (query: string): Promise<string[]> => {
 };
 
 const fetchInteractions = async (
-  medication: string,
-  current_medications: string[]
+  medication: Suggestion,
+  current_medications: Suggestion[]
 ): Promise<InteractionResponse> => {
   const response = await fetch("http://localhost:8000/check-interactions", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ medication, current_medications }),
+    body: JSON.stringify({
+      medication: medication,
+      current_medications: current_medications,
+    }),
   });
   return response.json();
 };
 
 export default function Home() {
   const [inputValue, setInputValue] = useState<string>("");
-  const [suggestions, setSuggestions] = useState<string[]>([]);
-  const [selectedMedications, setSelectedMedications] = useState<string[]>([]);
+  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [selectedMedications, setSelectedMedications] = useState<Suggestion[]>(
+    []
+  );
   const [interactionResults, setInteractionResults] =
     useState<InteractionResponse | null>(null);
 
@@ -53,23 +64,26 @@ export default function Home() {
     }
   };
 
-  const handleSelectMedication = async (medication: string) => {
-    const medName = medication.split(" (")[0]; // Extract medication name
-    if (!selectedMedications.includes(medName)) {
+  const handleSelectMedication = async (medication: Suggestion) => {
+    if (
+      !selectedMedications.find(
+        (med) => med.medscape_id === medication.medscape_id
+      )
+    ) {
       const interactions = await fetchInteractions(
-        medName,
+        medication,
         selectedMedications
       );
-      setSelectedMedications([...selectedMedications, medName]);
+      setSelectedMedications([...selectedMedications, medication]);
       setInteractionResults(interactions);
     }
     setInputValue("");
     setSuggestions([]);
   };
 
-  const handleRemoveMedication = (medication: string) => {
+  const handleRemoveMedication = (medication: Suggestion) => {
     const updatedMedications = selectedMedications.filter(
-      (med) => med !== medication
+      (med) => med.medscape_id !== medication.medscape_id
     );
     setSelectedMedications(updatedMedications);
 
@@ -119,11 +133,11 @@ export default function Home() {
               >
                 {suggestions.map((suggestion) => (
                   <li
-                    key={suggestion}
+                    key={suggestion.medscape_id}
                     onClick={() => handleSelectMedication(suggestion)}
                     className="px-4 py-2 cursor-pointer hover:bg-gray-200"
                   >
-                    {suggestion}
+                    {suggestion.name}
                   </li>
                 ))}
               </ul>
@@ -137,10 +151,10 @@ export default function Home() {
           <ul className="space-y-2">
             {selectedMedications.map((medication) => (
               <li
-                key={medication}
+                key={medication.medscape_id}
                 className="flex justify-between items-center bg-white p-4 rounded-lg shadow-md text-black"
               >
-                {medication}
+                {medication.name}
                 <button
                   onClick={() => handleRemoveMedication(medication)}
                   className="text-red-500 hover:text-red-700"
@@ -159,7 +173,7 @@ export default function Home() {
             </button>
           )}
           {interactionResults && interactionResults.interactions && (
-            <div className="mt-8 bg-white p-4 rounded-lg shadow-inner">
+            <div className="mt-8 bg-white p-4 rounded-lg shadow-inner text-black">
               <h2 className="text-2xl font-semibold text-gray-900 mb-4">
                 Interaction Results
               </h2>
@@ -169,6 +183,7 @@ export default function Home() {
                     medication1: string;
                     medication2: string;
                     interaction: string;
+                    severity: string;
                   },
                   index: Key | null | undefined
                 ) => (
@@ -178,6 +193,9 @@ export default function Home() {
                       <strong>{interaction.medication2}</strong>
                     </p>
                     <p>{interaction.interaction}</p>
+                    <p>
+                      <strong>Severity:</strong> {interaction.severity}
+                    </p>
                   </div>
                 )
               )}

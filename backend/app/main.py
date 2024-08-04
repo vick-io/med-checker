@@ -2,7 +2,7 @@
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from sqlalchemy import create_engine, Column, String, Integer
+from sqlalchemy import create_engine, Column, String, Integer, UniqueConstraint
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.sql import func
@@ -30,91 +30,60 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-class RXNCONSO(Base):
-    __tablename__ = "RXNCONSO"
-    RXCUI = Column(String, primary_key=True, index=True)
-    LAT = Column(String)
-    TS = Column(String)
-    LUI = Column(String)
-    STT = Column(String)
-    SUI = Column(String)
-    ISPREF = Column(String)
-    RXAUI = Column(String)
-    SAUI = Column(String)
-    SCUI = Column(String)
-    SDUI = Column(String)
-    SAB = Column(String)
-    TTY = Column(String)
-    CODE = Column(String)
-    STR = Column(String)
-    SRL = Column(Integer)
-    SUPPRESS = Column(String)
-    CVF = Column(String)
+class MedscapeDrug(Base):
+    __tablename__ = "medscape_drugs"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    name = Column(String(255), index=True)
+    medscape_id = Column(String(255), index=True)
 
 Base.metadata.create_all(bind=engine)
 
 class Medications(BaseModel):
-    medication: str
-    current_medications: list[str]
+    medication: dict
+    current_medications: list[dict]
 
 @app.post("/check-interactions")
 async def check_interactions(request: Medications):
     try:
         session = SessionLocal()
-        medication_rxcui = get_rxcui_from_db(session, request.medication)
-        current_medications_rxcui = [get_rxcui_from_db(session, med) for med in request.current_medications]
+        medication_medscape_id = request.medication['medscape_id']
+        current_medications_medscape_id = [med['medscape_id'] for med in request.current_medications]
         session.close()
         
-        if not medication_rxcui:
-            raise HTTPException(status_code=400, detail=f"RxCUI not found for medication: {request.medication}")
+        if not medication_medscape_id:
+            raise HTTPException(status_code=400, detail=f"Medscape ID not found for medication: {request.medication['name']}")
         
-        missing_rxcuis = [med for med, rxcui in zip(request.current_medications, current_medications_rxcui) if not rxcui]
-        if missing_rxcuis:
-            raise HTTPException(status_code=400, detail=f"RxCUI not found for medications: {missing_rxcuis}")
+        missing_medscape_ids = [med for med in request.current_medications if not med['medscape_id']]
+        if missing_medscape_ids:
+            raise HTTPException(status_code=400, detail=f"Medscape ID not found for medications: {missing_medscape_ids}")
         
-        interactions = await get_interactions([medication_rxcui] + current_medications_rxcui)
+        interactions = await get_interactions([medication_medscape_id] + current_medications_medscape_id)
         return {"interactions": interactions}
     except Exception as e:
         print(f"Unexpected error during interaction check: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-def get_rxcui_from_db(session, medication_name: str):
+async def get_interactions(medscape_ids: list[str]) -> list[dict]:
     try:
-        medication = session.query(RXNCONSO).filter(
-            func.lower(RXNCONSO.STR) == func.lower(medication_name)
-        ).first()
-        
-        if medication:
-            print(f"RxCUI found for {medication_name}: {medication.RXCUI}")
-            return medication.RXCUI
-        else:
-            print(f"No RxCUI found for {medication_name}")
-            return None
-    except Exception as e:
-        print(f"Error fetching RxCUI from DB for {medication_name}: {e}")
-        return None
-
-async def get_interactions(rxcuis: list[str]) -> list[dict]:
-    try:
-        print(f"Fetching interactions for RxCUIs: {rxcuis}")
+        print(f"Fetching interactions for Medscape IDs: {medscape_ids}")
         async with httpx.AsyncClient() as client:
             response = await client.get(
-                f"https://rxnav.nlm.nih.gov/REST/interaction/list.json?rxcuis={','.join(rxcuis)}"
+                f"https://reference.medscape.com/druginteraction.do?action=getMultiInteraction&ids={','.join(medscape_ids)}"
             )
             print(f"Interaction API response status: {response.status_code}")
             response.raise_for_status()
             data = response.json()
-            if 'fullInteractionTypeGroup' not in data:
+            print(f"Fetched data: {data}")  # Added log to show the fetched data
+            if 'multiInteractions' not in data:
                 raise ValueError("No interaction data found")
             interactions = []
-            for interaction_group in data['fullInteractionTypeGroup']:
-                for interaction in interaction_group["fullInteractionType"]:
-                    for pair in interaction["interactionPair"]:
-                        interactions.append({
-                            "medication1": pair["interactionConcept"][0]["sourceConceptItem"]["name"],
-                            "medication2": pair["interactionConcept"][1]["sourceConceptItem"]["name"],
-                            "interaction": pair["description"]
-                        })
+            for interaction in data['multiInteractions']:
+                interactions.append({
+                    "medication1": interaction["subject"],
+                    "medication2": interaction["object"],
+                    "interaction": interaction["text"],
+                    "severity": interaction["severity"]
+                })
             return interactions
     except httpx.HTTPStatusError as http_err:
         print(f"HTTP error during interaction check: {http_err}")
@@ -130,9 +99,9 @@ def search_medications(query: str = Query(..., min_length=1)):
         session = SessionLocal()
 
         # Perform the search query
-        medications = session.query(RXNCONSO).filter(
-            func.lower(RXNCONSO.STR).like(func.lower(f"{query}%"))
-        ).order_by(RXNCONSO.STR.asc()).limit(10).all()
+        medications = session.query(MedscapeDrug).filter(
+            func.lower(MedscapeDrug.name).like(func.lower(f"{query}%"))
+        ).order_by(MedscapeDrug.name.asc()).limit(10).all()
         session.close()
 
         if not medications:
@@ -140,7 +109,7 @@ def search_medications(query: str = Query(..., min_length=1)):
             raise HTTPException(status_code=404, detail="No medications found")
 
         suggestions = [
-            f"{med.STR} ({med.RXCUI})" for med in medications
+            {"name": med.name, "medscape_id": med.medscape_id} for med in medications
         ]
         print(f"Suggestions: {suggestions}")
         return {"suggestions": suggestions}
